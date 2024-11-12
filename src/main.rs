@@ -17,14 +17,13 @@ struct TdsGraphProps {
     history: VecDeque<TdsDataPoint>
 }
 
-#[hook]
-fn use_fetch_data() -> UseStateHandle<f64> {
+fn fetch_data() -> f64 {
     let data: f64 = rand::thread_rng().gen_range(0.0..1000.0);
     log::info!("DATA {data}");
-    use_state(|| data)
+    data
 }
 
-fn use_tds_history(history: &VecDeque<TdsDataPoint>, current_value: f64) -> VecDeque<TdsDataPoint> {
+fn tds_history(history: &VecDeque<TdsDataPoint>, current_value: f64) -> VecDeque<TdsDataPoint> {
     log::warn!("before {history:?}");
     let mut new_history = history.clone();
     if new_history.len() > 60 {
@@ -66,6 +65,7 @@ fn TdsGraph(props: &TdsGraphProps) -> Html {
                     let min_value = history.iter().map(|p| p.value).fold(f64::INFINITY, f64::min);
 
                     context.begin_path();
+                    #[allow(deprecated)]
                     context.set_stroke_style(&JsValue::from_str("#2196F3"));
                     context.set_line_width(2.0);
 
@@ -99,14 +99,14 @@ fn TdsGraph(props: &TdsGraphProps) -> Html {
 
 #[function_component]
 fn App() -> Html {
-    let data = use_state(|| use_fetch_data());
+    let data = use_state(|| fetch_data());
     let history = use_state(|| VecDeque::with_capacity(60));
     {
         let history = history.clone();
         let data = data.clone();
         use_interval(move || {
-            history.set(use_tds_history(&history, *data));
-            data.set(use_fetch_data());
+            history.set(tds_history(&history, *data));
+            data.set(fetch_data());
         }, 1000);
     }
 
