@@ -17,3 +17,5 @@ gloo-timers = "0.3.0"
 wasm-bindgen = "0.2.95"
 rand = "0.8.5"
 yew-hooks = "0.3.2"
+yew-chart = {version = "0.6.0"}
+chrono = "0.4.38"

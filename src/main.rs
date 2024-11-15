@@ -1,20 +1,32 @@
+use std::{
+    rc::Rc,
+    collections::VecDeque,
+};
+use chrono::{DateTime, Duration, Utc};
 use yew::prelude::*;
-use web_sys::HtmlCanvasElement;
-use wasm_bindgen::{JsCast, JsValue};
+use yew_chart::{
+    axis::{Axis, Orientation, Scale},
+    linear_axis_scale::LinearScale,
+    series::{self, Series, Tooltipper, Type, Labeller},
+    time_axis_scale::TimeScale,
+};
 use yew_hooks::use_interval;
-use std::collections::VecDeque;
 use rand::Rng;
+
+static WIDTH: f32 = 533.0;
+static HEIGHT: f32 = 300.0;
+static MARGIN: f32 = 50.0;
+static TICK_LENGTH: f32 = 10.0;
 
 #[derive(Clone, Debug, PartialEq, Copy)]
 struct TdsDataPoint {
     value: f64,
-    timestamp: f64,
+    timestamp: DateTime<Utc>,
 }
 
 #[derive(Properties, PartialEq, Clone)]
 struct TdsGraphProps {
-    value: f64,
-    history: VecDeque<TdsDataPoint>
+    history: VecDeque<TdsDataPoint>,
 }
 
 fn fetch_data() -> f64 {
@@ -23,77 +35,73 @@ fn fetch_data() -> f64 {
     data
 }
 
-fn use_tds_history(historya: &VecDeque<TdsDataPoint>, current_value: f64) -> VecDeque<TdsDataPoint> {
-    log::warn!("before {historya:?}");
-    let mut history = historya.clone();
+fn use_tds_history(old_history: &VecDeque<TdsDataPoint>, current_value: f64) -> VecDeque<TdsDataPoint> {
+    let mut history = old_history.clone();
     if history.len() > 60 {
         history.pop_front();
     }
     history.push_back(TdsDataPoint {
         value: current_value,
-        timestamp: web_sys::js_sys::Date::now(),
+        timestamp: Utc::now(),
     });
-    log::warn!("after {historya:?}");
     history.clone()
 }
 
 #[function_component]
-fn TdsGraph(props: &TdsGraphProps) -> Html {
-    let canvas_ref = use_node_ref();
-    let history = &props.history;
-    log::info!("{history:?}");
+fn Graph(props: &TdsGraphProps) -> Html {
+    let end_date = Utc::now();
+    let start_date = match props.history.front() {
+        Some(time) => time,
+        None => return html!{},
+    }.timestamp;
+    let timespan = start_date..end_date;
+    let circle_text_labeller = Rc::from(series::circle_label()) as Rc<dyn Labeller>;
+    // Data set for the graph
+    let data_set = Rc::new(
+        props.history.iter().map(|point| {
+            (
+                point.timestamp.timestamp_millis(),
+                point.value as f32,
+                Some(circle_text_labeller.clone()),
+            )
+        }).collect::<Vec<_>>()
+    );
 
-    {
-        let canvas_ref = canvas_ref.clone();
-        let history = history.clone();
-        use_effect_with(history.clone(), move |_| {
-            if let Some(canvas) = canvas_ref.cast::<HtmlCanvasElement>() {
-                let context = canvas
-                    .get_context("2d")
-                    .unwrap()
-                    .unwrap()
-                    .dyn_into::<web_sys::CanvasRenderingContext2d>()
-                    .unwrap();
+    // Horizontal (time) and vertical (value) scales
+    let h_scale = Rc::new(TimeScale::new(timespan, Duration::hours(1))) as Rc<dyn Scale<Scalar = _>>;
+    let v_scale = Rc::new(LinearScale::new(0.0..1000.0, 100.0)) as Rc<dyn Scale<Scalar = _>>;
 
-                let canvas_width = canvas.width() as f64;
-                let canvas_height = canvas.height() as f64;
-
-                context.clear_rect(0.0, 0.0, canvas_width, canvas_height);
-
-                if !history.is_empty() {
-                    let max_value = history.iter().map(|p| p.value).fold(f64::NEG_INFINITY, f64::max);
-                    let min_value = history.iter().map(|p| p.value).fold(f64::INFINITY, f64::min);
-
-                    context.begin_path();
-                    context.set_stroke_style(&JsValue::from_str("#2196F3"));
-                    context.set_line_width(2.0);
-
-                    for (i, point) in history.iter().enumerate() {
-                        let x = (i as f64 / history.len() as f64) * canvas_width;
-                        let y = canvas_height - ((point.value - min_value) / (max_value - min_value)) * canvas_height;
-
-                        if i == 0 {
-                            context.move_to(x, y);
-                        } else {
-                            context.line_to(x, y);
-                        }
-                    }
-
-                    context.stroke();
-                }
-            }
-            || ()
-        });
-    }
+    let tooltip = Rc::from(series::y_tooltip()) as Rc<dyn Tooltipper<_, _>>;
 
     html! {
-        <canvas
-            ref={canvas_ref}
-            width="600"
-            height="200"
-            style="border: 1px solid #ccc; background-color: #f5f5f5;"
-        />
-    }
+        <svg class="chart" viewBox={format!("0 0 {} {}", WIDTH, HEIGHT)} preserveAspectRatio="none">
+            <Series<i64, f32>
+                series_type={Type::Line}
+                name="TDS_meter"
+                data={data_set}
+                horizontal_scale={h_scale.clone()}
+                horizontal_scale_step={Duration::days(2).num_milliseconds()}
+                tooltipper={tooltip.clone()}
+                vertical_scale={v_scale.clone()}
+                x={MARGIN} y={MARGIN} width={WIDTH - (MARGIN * 2.0)} height={HEIGHT - (MARGIN * 2.0)} />
+
+            <Axis<f32>
+                name="tempo"
+                orientation={Orientation::Left}
+                scale={v_scale}
+                x1={MARGIN} y1={MARGIN} xy2={HEIGHT - MARGIN}
+                tick_len={TICK_LENGTH}/>
+
+            <Axis<i64>
+                name="TDS"
+                orientation={Orientation::Bottom}
+                scale={h_scale}
+                x1={MARGIN} y1={HEIGHT - MARGIN} xy2={WIDTH - MARGIN}
+                tick_len={TICK_LENGTH}
+                title={"Tempo"} />
+
+        </svg>
+    }  
 }
 
 #[function_component]
@@ -111,11 +119,12 @@ fn App() -> Html {
 
     let get_quality_level = |tds: f64| -> (&'static str, &'static str) {
         match tds {
-            x if x < 50.0 => ("Excellent", "#4CAF50"),
-            x if x < 150.0 => ("Good", "#8BC34A"),
-            x if x < 250.0 => ("Fair", "#FFC107"),
-            x if x < 350.0 => ("Poor", "#FF9800"),
-            _ => ("Unsafe", "#F44336"),
+            0.0..100.0 => ("Excelente", "#4CAF50"),
+            100.0.. 200.0 => ("Bom", "#8BC34A"),
+            200.0..300.0 => ("Aceitável", "#FFC107"),
+            300.0..400.0 => ("Ruim", "#FF9800"),
+            400.0..500.0 => ("Péssimo", "#FF9800"),
+            _ => ("Perigoso", "#F44336"),
         }
     };
 
@@ -143,9 +152,9 @@ fn App() -> Html {
         
         <div class="canvas-container">
             <h2>{"TDS History"}</h2>
-            <TdsGraph value={*data} history={(*history).clone()} />
-        </div>
-    </div>
+            <Graph history={(*history).clone()}/>
+            </div>
+            </div>
 }
 }
 
