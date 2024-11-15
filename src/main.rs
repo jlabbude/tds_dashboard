@@ -29,10 +29,11 @@ struct TdsGraphProps {
     history: VecDeque<TdsDataPoint>,
 }
 
-fn fetch_data() -> f64 {
+#[hook]
+fn use_fetch_data() -> UseStateHandle<f64> {
     let data: f64 = rand::thread_rng().gen_range(0.0..1000.0);
     log::info!("DATA {data}");
-    data
+    use_state(|| data)
 }
 
 fn use_tds_history(old_history: &VecDeque<TdsDataPoint>, current_value: f64) -> VecDeque<TdsDataPoint> {
@@ -40,7 +41,7 @@ fn use_tds_history(old_history: &VecDeque<TdsDataPoint>, current_value: f64) -> 
     if history.len() > 60 {
         history.pop_front();
     }
-    history.push_back(TdsDataPoint {
+    new_history.push_back(TdsDataPoint {
         value: current_value,
         timestamp: Utc::now(),
     });
@@ -106,14 +107,14 @@ fn Graph(props: &TdsGraphProps) -> Html {
 
 #[function_component]
 fn App() -> Html {
-    let data = use_state(|| fetch_data());
+    let data = use_state(|| use_fetch_data());
     let history = use_state(|| VecDeque::with_capacity(60));
     {
         let history = history.clone();
         let data = data.clone();
         use_interval(move || {
             history.set(use_tds_history(&history, *data));
-            data.set(fetch_data());
+            data.set(use_fetch_data());
         }, 1000);
     }
 
