@@ -1,22 +1,20 @@
-use std::{
-    rc::Rc,
-    collections::VecDeque,
-};
-use chrono::{DateTime, Duration, Utc};
-use yew::prelude::*;
-use yew_chart::{
-    axis::{Axis, Orientation, Scale},
-    linear_axis_scale::LinearScale,
-    series::{self, Series, Tooltipper, Type, Labeller},
-    time_axis_scale::TimeScale,
-};
-use yew_hooks::use_interval;
+#![allow(deprecated, clippy::redundant_closure)]
+use chrono::{DateTime, Utc};
 use rand::Rng;
+use serde_json::json;
+use std::collections::VecDeque;
+use wasm_bindgen::JsValue;
+use yew::prelude::*;
+use yew_hooks::use_interval;
+use wasm_bindgen::prelude::*;
 
-static WIDTH: f32 = 533.0;
-static HEIGHT: f32 = 300.0;
-static MARGIN: f32 = 50.0;
-static TICK_LENGTH: f32 = 10.0;
+#[wasm_bindgen(module = "/src/package.js")]
+extern "C" {
+    pub fn createChart(canvas_id: &str, data: JsValue, options: JsValue) -> JsValue;
+    pub fn updateChart(canvas_id: &str, new_data: JsValue);
+    #[wasm_bindgen(js_name = chartInstances)]
+    static CHART_INSTANCES: JsValue;
+}
 
 #[derive(Clone, Debug, PartialEq, Copy)]
 struct TdsDataPoint {
@@ -27,6 +25,12 @@ struct TdsDataPoint {
 #[derive(Properties, PartialEq, Clone)]
 struct TdsGraphProps {
     history: VecDeque<TdsDataPoint>,
+}
+
+pub fn is_chart_instances_empty() -> bool {
+    js_sys::Object::keys(CHART_INSTANCES.dyn_ref::<js_sys::Object>()
+        .expect("CHART_INSTANCES is not an object"))
+        .length() == 0
 }
 
 fn fetch_data() -> f64 {
@@ -49,60 +53,63 @@ fn tds_history(old_history: &VecDeque<TdsDataPoint>, current_value: f64) -> VecD
 
 #[function_component]
 fn Graph(props: &TdsGraphProps) -> Html {
-    let end_date = Utc::now();
-    let start_date = match props.history.front() {
-        Some(time) => time,
-        None => return html!{},
-    }.timestamp;
-    let timespan = start_date..end_date;
-    let circle_text_labeller = Rc::from(series::circle_label()) as Rc<dyn Labeller>;
-    // Data set for the graph
-    let data_set = Rc::new(
-        props.history.iter().map(|point| {
-            (
-                point.timestamp.timestamp_millis(),
-                point.value as f32,
-                Some(circle_text_labeller.clone()),
-            )
-        }).collect::<Vec<_>>()
-    );
+    use wasm_bindgen::JsValue;
+    use web_sys::HtmlCanvasElement;
+    
 
-    // Horizontal (time) and vertical (value) scales
-    let h_scale = Rc::new(TimeScale::new(timespan, Duration::hours(1))) as Rc<dyn Scale<Scalar = _>>;
-    let v_scale = Rc::new(LinearScale::new(0.0..1000.0, 100.0)) as Rc<dyn Scale<Scalar = _>>;
+    let canvas_ref = use_node_ref(); // Reference to the canvas element
 
-    let tooltip = Rc::from(series::y_tooltip()) as Rc<dyn Tooltipper<_, _>>;
+    {
+        let canvas_ref = canvas_ref.clone();
+        let history = props.history.clone();
+
+        use_effect_with(
+            props.history.clone(), // Re-run effect when history updates
+            move |_| {
+                // Prepare the data for the chart
+                let labels: Vec<String> = history
+                    .iter()
+                    .map(|point| point.timestamp.format("%H:%M:%S").to_string())
+                    .collect();
+                let data: Vec<f64> = history.iter().map(|point| point.value).collect();
+
+                let chart_data = json!({
+                    "labels": labels,
+                    "datasets": [{
+                        "label": "TDS (ppm)",
+                        "data": data,
+                        "fill": false,
+                        "borderColor": "rgba(75, 192, 192, 1)",
+                        "tension": 0.1
+                    }]
+                });
+
+                let options = json!({
+                    "scales": {
+                        "y": {
+                            "beginAtZero": true
+                        }
+                    }
+                });
+
+                // Get the canvas element
+                if let Some(canvas) = canvas_ref.cast::<HtmlCanvasElement>() {
+                    match is_chart_instances_empty() {
+                        true => { createChart(&canvas.id(), JsValue::from_serde(&chart_data).unwrap(), JsValue::from_serde(&options).unwrap()); },
+                        false => updateChart(&canvas.id(), JsValue::from_serde(&chart_data).unwrap()),
+                    }
+                }
+
+                || ()
+            },
+        );
+    }
 
     html! {
-        <svg class="chart" viewBox={format!("0 0 {} {}", WIDTH, HEIGHT)} preserveAspectRatio="none">
-            <Series<i64, f32>
-                series_type={Type::Line}
-                name="TDS_meter"
-                data={data_set}
-                horizontal_scale={h_scale.clone()}
-                horizontal_scale_step={Duration::days(2).num_milliseconds()}
-                tooltipper={tooltip.clone()}
-                vertical_scale={v_scale.clone()}
-                x={MARGIN} y={MARGIN} width={WIDTH - (MARGIN * 2.0)} height={HEIGHT - (MARGIN * 2.0)} />
-
-            <Axis<f32>
-                name="tempo"
-                orientation={Orientation::Left}
-                scale={v_scale}
-                x1={MARGIN} y1={MARGIN} xy2={HEIGHT - MARGIN}
-                tick_len={TICK_LENGTH}/>
-
-            <Axis<i64>
-                name="TDS"
-                orientation={Orientation::Bottom}
-                scale={h_scale}
-                x1={MARGIN} y1={HEIGHT - MARGIN} xy2={WIDTH - MARGIN}
-                tick_len={TICK_LENGTH}
-                title={"Tempo"} />
-
-        </svg>
-    }  
+        <canvas id="tdsGraph" ref={canvas_ref}></canvas>
+    }
 }
+
 
 #[function_component]
 fn App() -> Html {
@@ -111,16 +118,19 @@ fn App() -> Html {
     {
         let history = history.clone();
         let data = data.clone();
-        use_interval(move || {
-            history.set(tds_history(&history, *data));
-            data.set(fetch_data());
-        }, 1000);
+        use_interval(
+            move || {
+                history.set(tds_history(&history, *data));
+                data.set(fetch_data());
+            },
+            1000,
+        );
     }
 
     let get_quality_level = |tds: f64| -> (&'static str, &'static str) {
         match tds {
             0.0..100.0 => ("Excelente", "#4CAF50"),
-            100.0.. 200.0 => ("Bom", "#8BC34A"),
+            100.0..200.0 => ("Bom", "#8BC34A"),
             200.0..300.0 => ("Aceitável", "#FFC107"),
             300.0..400.0 => ("Ruim", "#FF9800"),
             400.0..500.0 => ("Péssimo", "#FF9800"),
@@ -131,31 +141,31 @@ fn App() -> Html {
     let (quality, color) = get_quality_level(*data);
 
     html! {
-    <div class="container">
-        <h1>{"Water Quality Dashboard"}</h1>
-        
-        <div class="grid-container">
-            <div class="card">
-                <h2>{"Current TDS"}</h2>
-                <div class="value">
-                    {format!("{:.1} ppm", *data)}
+        <div class="container">
+            <h1>{"Water Quality Dashboard"}</h1>
+
+            <div class="grid-container">
+                <div class="card">
+                    <h2>{"Current TDS"}</h2>
+                    <div class="value">
+                        {format!("{:.1} ppm", *data)}
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>{"Water Quality"}</h2>
+                    <div class="value" style={format!("color: {};", color)}>
+                        {quality}
+                    </div>
                 </div>
             </div>
-            
-            <div class="card">
-                <h2>{"Water Quality"}</h2>
-                <div class="value" style={format!("color: {};", color)}>
-                    {quality}
+
+            <div class="canvas-container">
+                <h2>{"TDS History"}</h2>
+                <Graph history={(*history).clone()}/>
                 </div>
-            </div>
-        </div>
-        
-        <div class="canvas-container">
-            <h2>{"TDS History"}</h2>
-            <Graph history={(*history).clone()}/>
-            </div>
-            </div>
-}
+                </div>
+    }
 }
 
 fn main() {

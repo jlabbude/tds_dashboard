@@ -1802,12 +1802,15 @@ name = "tds_dashboard"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "gloo 0.11.0",
  "gloo-timers 0.3.0",
+ "js-sys",
  "log",
  "rand",
  "reqwasm",
  "reqwest",
  "serde",
+ "serde-wasm-bindgen 0.6.5",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",

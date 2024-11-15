@@ -4,3 +4,5 @@
 style.css
 index.scss
 index.html
+src/package.js
+/node_modules/

@@ -19,3 +19,6 @@ rand = "0.8.5"
 yew-hooks = "0.3.2"
 yew-chart = {version = "0.6.0"}
 chrono = "0.4.38"
+js-sys = "0.3.72"
+serde-wasm-bindgen = "0.6.5"
+gloo = "0.11.0"

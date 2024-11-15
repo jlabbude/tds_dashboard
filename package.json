@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "chart.js": "^4.4.6",
+    "esbuild": "^0.24.0"
+  },
+  "scripts": {
+    "build": "node esbuild.js"
+  }
+}
