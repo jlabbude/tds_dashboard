@@ -1,5 +1,5 @@
 #![allow(deprecated, clippy::redundant_closure)]
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local};
 use rand::Rng;
 use serde_json::json;
 use std::collections::VecDeque;
@@ -19,7 +19,7 @@ extern "C" {
 #[derive(Clone, Debug, PartialEq, Copy)]
 struct TdsDataPoint {
     value: f64,
-    timestamp: DateTime<Utc>,
+    timestamp: DateTime<Local>,
 }
 
 #[derive(Properties, PartialEq, Clone)]
@@ -46,7 +46,7 @@ fn tds_history(old_history: &VecDeque<TdsDataPoint>, current_value: f64) -> VecD
     }
     new_history.push_back(TdsDataPoint {
         value: current_value,
-        timestamp: Utc::now(),
+        timestamp: Local::now(),
     });
     new_history.clone()
 }
@@ -114,7 +114,14 @@ fn Graph(props: &TdsGraphProps) -> Html {
 #[function_component]
 fn App() -> Html {
     let data = use_state(|| fetch_data());
-    let history = use_state(|| VecDeque::with_capacity(60));
+    let mut deque = VecDeque::with_capacity(60);
+    (1..60).into_iter().for_each(|_| {
+        deque.push_back(TdsDataPoint {
+            value: fetch_data(),
+            timestamp: Local::now(),
+        });
+    });
+    let history = use_state(|| deque);
     {
         let history = history.clone();
         let data = data.clone();
@@ -123,7 +130,7 @@ fn App() -> Html {
                 history.set(tds_history(&history, *data));
                 data.set(fetch_data());
             },
-            1000,
+            60*1000,
         );
     }
 
@@ -133,7 +140,7 @@ fn App() -> Html {
             100.0..200.0 => ("Bom", "#8BC34A"),
             200.0..300.0 => ("Aceitável", "#FFC107"),
             300.0..400.0 => ("Ruim", "#FF9800"),
-            400.0..500.0 => ("Péssimo", "#FF9800"),
+            400.0..600.0 => ("Péssimo", "#FF9800"),
             _ => ("Perigoso", "#F44336"),
         }
     };
@@ -142,18 +149,16 @@ fn App() -> Html {
 
     html! {
         <div class="container">
-            <h1>{"Water Quality Dashboard"}</h1>
-
             <div class="grid-container">
                 <div class="card">
-                    <h2>{"Current TDS"}</h2>
+                    <h2>{"TDS Atual"}</h2>
                     <div class="value">
                         {format!("{:.1} ppm", *data)}
                     </div>
                 </div>
 
                 <div class="card">
-                    <h2>{"Water Quality"}</h2>
+                    <h2>{"Qualidade"}</h2>
                     <div class="value" style={format!("color: {};", color)}>
                         {quality}
                     </div>
@@ -161,7 +166,7 @@ fn App() -> Html {
             </div>
 
             <div class="canvas-container">
-                <h2>{"TDS History"}</h2>
+                <h2>{"Histórico"}</h2>
                 <Graph history={(*history).clone()}/>
                 </div>
                 </div>

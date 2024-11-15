@@ -10,7 +10,7 @@ import {
     Tooltip
 } from 'chart.js';
 
-// Register necessary components
+
 Chart.register(
     LineController,
     LineElement,
@@ -22,14 +22,12 @@ Chart.register(
     Tooltip
 );
 
-// Keep track of active chart instances
 export const chartInstances = {};
 
 export function createChart(canvasId, data, options) {
-    const canvas = document.getElementById(canvasId);
-    const ctx = canvas.getContext('2d');
-    const chart = new Chart(ctx, {
-        type: 'line', // Example chart type
+    const chart = new Chart(
+        document.getElementById(canvasId).getContext('2d'), {
+        type: 'line', 
         data: data,
         options: options
     });
@@ -38,23 +36,17 @@ export function createChart(canvasId, data, options) {
     return chart;
 }
 
-// Assuming chartInstances and createChart are already defined as in previous examples
-
 export function updateChart(canvasId, newData) {
     const chart = chartInstances[canvasId];
-
     if (!chart) {
         console.error(`No chart found for canvasId: ${canvasId}.`);
         return;
-    }
-
-    // Update chart data
-    chart.data.labels = newData.labels; // Update labels
+    }   
+    chart.data.labels = newData.labels; 
     chart.data.datasets.forEach((dataset, index) => {
-        dataset.data = newData.datasets[index].data; // Update dataset data
+        dataset.data = newData.datasets[index].data; 
     });
 
-    // Apply the updates
     chart.update();
 }
 
