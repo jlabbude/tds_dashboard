@@ -1,5 +1,6 @@
 #![allow(deprecated, clippy::redundant_closure)]
 use chrono::{DateTime, Local, TimeZone};
+use core::panic;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use wasm_bindgen::prelude::*;
@@ -69,6 +70,32 @@ fn use_fetch_latest_data() -> Option<TdsDataPoint> {
     *latest_data
 }
 
+#[hook]
+fn use_fetch_history() -> UseStateHandle<VecDeque<TdsDataPoint>> {
+    let history = use_state(|| VecDeque::<TdsDataPoint>::with_capacity(60));
+
+    {
+        let history = history.clone();
+        use_effect_with((), move |_| {
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Ok(response) = reqwest::get("http://localhost:8000/tds_history").await {
+                    if let Ok(json_data) = response.json::<Vec<Value>>().await {
+                        history.set(
+                            json_data
+                                .iter()
+                                .map(serialize_tds_json)
+                                .collect::<Vec<TdsDataPoint>>()
+                                .into(),
+                        );
+                    }
+                }
+            });
+        });
+    }
+
+    history
+}
+
 fn tds_history(
     old_history: &VecDeque<TdsDataPoint>,
     current_value: TdsDataPoint,
@@ -82,9 +109,7 @@ fn tds_history(
 }
 
 /// `yew_hooks::use_interval` misbehaves if i dont do this
-fn refresh(
-    old_history: &VecDeque<TdsDataPoint>,
-) -> VecDeque<TdsDataPoint> {
+fn refresh(old_history: &VecDeque<TdsDataPoint>) -> VecDeque<TdsDataPoint> {
     old_history.clone()
 }
 
@@ -153,7 +178,7 @@ fn Graph(props: &TdsGraphProps) -> Html {
 
 #[function_component]
 fn App() -> Html {
-    let history = use_state(|| VecDeque::<TdsDataPoint>::with_capacity(60));
+    let history = use_fetch_history();
     let data_op = use_fetch_latest_data();
     {
         let history = history.clone();
@@ -161,14 +186,16 @@ fn App() -> Html {
             move || {
                 if let Some(data) = &data_op {
                     let normalized_timestamp = data.timestamp.timestamp();
-                    if history.back().map_or(true, |front| front.timestamp.timestamp() != normalized_timestamp) {
+                    if history.back().map_or(true, |front| {
+                        front.timestamp.timestamp() != normalized_timestamp
+                    }) {
                         history.set(tds_history(&history, data.clone()));
                     } else {
                         history.set(refresh(&history));
                     }
                 }
             },
-            1000
+            1000,
         );
     }
 
