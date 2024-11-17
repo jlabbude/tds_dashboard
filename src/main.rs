@@ -1,6 +1,5 @@
 #![allow(deprecated, clippy::redundant_closure)]
 use chrono::{DateTime, Local, TimeZone};
-use core::panic;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use wasm_bindgen::prelude::*;
@@ -189,7 +188,7 @@ fn App() -> Html {
                     if history.back().map_or(true, |front| {
                         front.timestamp.timestamp() != normalized_timestamp
                     }) {
-                        history.set(tds_history(&history, data.clone()));
+                        history.set(tds_history(&history, *data));
                     } else {
                         history.set(refresh(&history));
                     }
