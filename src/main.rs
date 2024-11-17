@@ -202,12 +202,12 @@ fn App() -> Html {
     let get_quality_level = |tds: f64| -> (&'static str, &'static str) {
         match tds {
             0.0 => ("Desconectado", "#000000"),
-            1.0..100.0 => ("Excelente", "#4CAF50"),
-            100.0..200.0 => ("Bom", "#8BC34A"),
-            200.0..300.0 => ("Aceitável", "#FFC107"),
-            300.0..400.0 => ("Ruim", "#FF9800"),
-            400.0..600.0 => ("Péssimo", "#FF9800"),
-            _ => ("Perigoso", "#F44336"),
+            1.0..300.0 => ("Excelente", "#4CAF50"),
+            300.0..600.0 => ("Bom", "#8BC34A"),
+            600.0..900.0 => ("Aceitável", "#FFC107"),
+            900.0..1200.0 => ("Ruim", "#FF9800"),
+            1200.0.. => ("Inaceitável", "#FF9800"),
+            _ => ("Inválido", "#000000"), // negative values
         }
     };
 
