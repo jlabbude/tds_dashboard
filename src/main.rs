@@ -5,9 +5,16 @@ use std::collections::VecDeque;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 use web_sys::Element;
+use web_sys::HtmlAudioElement;
 use web_sys::HtmlCanvasElement;
 use yew::prelude::*;
 use yew_hooks::use_interval;
+
+#[derive(PartialEq)]
+enum TDSState {
+    Safe,
+    Unsafe,
+}
 
 #[wasm_bindgen(module = "/src/package.js")]
 extern "C" {
@@ -179,6 +186,11 @@ fn Graph(props: &TdsGraphProps) -> Html {
 fn App() -> Html {
     let history = use_fetch_history();
     let data_op = use_fetch_latest_data();
+    let alarm_state = use_state_eq(|| TDSState::Safe);
+    let path = "Applause.wav";
+    let alarm_audio = use_state(|| HtmlAudioElement::new_with_src(path).ok());
+    let user_interacted = use_state(|| false);
+    
     {
         let history = history.clone();
         use_interval(
@@ -201,41 +213,90 @@ fn App() -> Html {
     let data = data_op.as_ref().map_or(0.0, |data| data.value);
     let get_quality_level = |tds: f64| -> (&'static str, &'static str) {
         match tds {
-            0.0 => ("Desconectado", "#000000"),
-            1.0..300.0 => ("Excelente", "#4CAF50"),
-            300.0..600.0 => ("Bom", "#8BC34A"),
-            600.0..900.0 => ("Aceitável", "#FFC107"),
-            900.0..1200.0 => ("Ruim", "#FF9800"),
-            1200.0.. => ("Inaceitável", "#FF9800"),
+            0.0 => {
+                alarm_state.set(TDSState::Safe);
+                ("Desconectado", "#000000")
+            }
+            1.0..300.0 => {
+                alarm_state.set(TDSState::Safe);
+                ("Excelente", "#4CAF50")
+            }
+            300.0..600.0 => {
+                alarm_state.set(TDSState::Safe);
+                ("Bom", "#8BC34A")
+            }
+            600.0..900.0 => {
+                alarm_state.set(TDSState::Safe);
+                ("Aceitável", "#FFC107")
+            }
+            900.0..1200.0 => {
+                alarm_state.set(TDSState::Safe);
+                ("Ruim", "#FF9800")
+            }
+            1200.0.. => {
+                alarm_state.set(TDSState::Unsafe);
+                ("Inaceitável", "#FF9800")
+            }
             _ => ("Inválido", "#000000"), // negative values
         }
     };
 
     let (quality, color) = get_quality_level(data);
 
+    {
+        let alarm_state = alarm_state.clone();
+        let alarm_audio = alarm_audio.clone();
+        use_effect(move || {
+            if let Some(audio) = &*alarm_audio {
+                if *alarm_state == TDSState::Unsafe {
+                    let _ = audio
+                        .play()
+                        .map_err(|err| log::error!("Failed to play alarm sound: {:?}", err));
+                } else {
+                    audio
+                        .pause()
+                        .map_err(|err| log::error!("Failed to stop alarm sound: {:?}", err))
+                        .unwrap();
+                    audio.set_current_time(0.0);
+                }
+            }
+        });
+    }
+
     html! {
-        <div class="container">
-            <div class="grid-container">
-                <div class="card">
-                    <h2>{"TDS Atual"}</h2>
-                    <div class="value">
-                        {format!("{:.1} ppm", data)}
+        <>
+        if !*user_interacted {
+            <div class="permission-banner">
+                <p>{"Click to enable audio alarms."}</p>
+                <button onclick={ Callback::from(move |_| user_interacted.set(true) )}>
+                    {"Enable Audio"}
+                </button>
+            </div>
+        }
+
+            <div class="container">
+                <div class="grid-container">
+                    <div class="card">
+                        <h2>{"TDS Atual"}</h2>
+                        <div class="value">
+                            {format!("{:.1} ppm", data)}
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h2>{"Qualidade"}</h2>
+                        <div class="value" style={format!("color: {};", color)}>
+                            {quality}
+                        </div>
                     </div>
                 </div>
 
-                <div class="card">
-                    <h2>{"Qualidade"}</h2>
-                    <div class="value" style={format!("color: {};", color)}>
-                        {quality}
-                    </div>
+                <div class="canvas-container">
+                    <h2>{"Histórico"}</h2>
+                    <Graph history={(*history).clone()}/>
                 </div>
             </div>
-
-            <div class="canvas-container">
-                <h2>{"Histórico"}</h2>
-                <Graph history={(*history).clone()}/>
-                </div>
-                </div>
+        </>
     }
 }
 
