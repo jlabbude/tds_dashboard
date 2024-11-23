@@ -56,8 +56,11 @@ pub fn is_chart_instances_empty() -> bool {
 }
 
 #[hook]
-fn use_fetch_latest_data() -> Option<TdsDataPoint> {
-    let latest_data = use_state_eq(|| None);
+fn use_fetch_latest_data() -> TdsDataPoint {
+    let latest_data = use_state_eq(|| TdsDataPoint {
+        value: 0.0,
+        timestamp: Local::now(),
+    });
 
     {
         let latest_data = latest_data.clone();
@@ -65,10 +68,8 @@ fn use_fetch_latest_data() -> Option<TdsDataPoint> {
             if let Ok(response) = reqwest::get("http://localhost:8000/last_message").await {
                 if let Ok(json_data) = response.json::<Value>().await {
                     let new_data = serialize_tds_json(&json_data);
-                    latest_data.set(Some(new_data));
+                    latest_data.set(new_data);
                 }
-            } else {
-                latest_data.set(None);
             }
         });
     }
@@ -185,32 +186,29 @@ fn Graph(props: &TdsGraphProps) -> Html {
 #[function_component]
 fn App() -> Html {
     let history = use_fetch_history();
-    let data_op = use_fetch_latest_data();
+    let data = use_fetch_latest_data();
     let alarm_state = use_state_eq(|| TDSState::Safe);
     let path = "Applause.wav";
     let alarm_audio = use_state(|| HtmlAudioElement::new_with_src(path).ok());
     let user_interacted = use_state(|| false);
-    
+
     {
         let history = history.clone();
         use_interval(
             move || {
-                if let Some(data) = &data_op {
-                    let normalized_timestamp = data.timestamp.timestamp();
-                    if history.back().map_or(true, |front| {
-                        front.timestamp.timestamp() != normalized_timestamp
-                    }) {
-                        history.set(tds_history(&history, *data));
-                    } else {
-                        history.set(refresh(&history));
-                    }
+                let normalized_timestamp = data.timestamp.timestamp();
+                if history.back().map_or(true, |front| {
+                    front.timestamp.timestamp() != normalized_timestamp
+                }) {
+                    history.set(tds_history(&history, data));
+                } else {
+                    history.set(refresh(&history));
                 }
             },
-            1000,
+            5000,
         );
     }
 
-    let data = data_op.as_ref().map_or(0.0, |data| data.value);
     let get_quality_level = |tds: f64| -> (&'static str, &'static str) {
         match tds {
             0.0 => {
@@ -241,7 +239,7 @@ fn App() -> Html {
         }
     };
 
-    let (quality, color) = get_quality_level(data);
+    let (quality, color) = get_quality_level(data.value);
 
     {
         let alarm_state = alarm_state.clone();
@@ -279,7 +277,7 @@ fn App() -> Html {
                     <div class="card">
                         <h2>{"TDS Atual"}</h2>
                         <div class="value">
-                            {format!("{:.1} ppm", data)}
+                            {format!("{:.1} ppm", data.value)}
                         </div>
                     </div>
 
